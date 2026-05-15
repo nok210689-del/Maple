@@ -2,7 +2,7 @@ name: Maple Check
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # 10분마다 실행
+    - cron: '*/5 * * * *'  # 5분마다 실행
   workflow_dispatch:       # 수동 실행 버튼 활성화
 
 jobs:
@@ -25,6 +25,9 @@ jobs:
 
       - name: Run Crawler
         run: python main.py
+        env:
+          # Secrets에 저장한 이름을 여기에 적어줍니다.
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
 
       - name: Auto Commit
         run: |
