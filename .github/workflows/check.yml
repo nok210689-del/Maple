@@ -1,9 +1,9 @@
 name: Maple Check
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'  # 5분마다 실행
-  workflow_dispatch:       # 수동 실행 버튼 활성화
+  repository_dispatch:
+    types: [maple-trigger]  # cron-job.org가 던질 신호 이름
+  workflow_dispatch:        # 수동 실행 버튼 유지
 
 jobs:
   run-bot:
@@ -11,28 +11,37 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          playwright install chromium
+          playwright install --with-deps chromium
 
       - name: Run Crawler
         run: python main.py
         env:
-          # Secrets에 저장한 이름을 여기에 적어줍니다.
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
 
       - name: Auto Commit
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add last_*.txt
-          git commit -m "Update last checked data" || exit 0
-          git push
+          if [ -f last_*.txt ]; then
+            git add last_*.txt
+            if ! git diff --staged --quiet; then
+              git commit -m "Update last checked data [skip ci]"
+              git push
+            else
+              echo "No changes to commit"
+            fi
+          else
+            echo "No tracker files found"
+          fi
