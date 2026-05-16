@@ -26,7 +26,7 @@ jobs:
       # 🌟 Playwright 브라우저 캐싱 추가 (여기서 시간을 엄청나게 아낍니다)
       - name: Cache Playwright Browsers
         id: cache-playwright
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
