@@ -2,8 +2,8 @@ name: Maple Check
 
 on:
   repository_dispatch:
-    types: [maple-trigger]  # cron-job.org가 던질 신호 이름
-  workflow_dispatch:        # 수동 실행 버튼 유지
+    types: [maple-trigger]
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -18,12 +18,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
+          cache: 'pip' # Python 패키지 캐싱
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          playwright install --with-deps chromium
+        run: pip install -r requirements.txt
+
+      # 🌟 Playwright 브라우저 캐싱 추가 (여기서 시간을 엄청나게 아낍니다)
+      - name: Cache Playwright Browsers
+        id: cache-playwright
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
+
+      # 캐시가 없으면 새로 설치, 있으면 건너뜀
+      - name: Install Playwright Chromium
+        run: playwright install --with-deps chromium
 
       - name: Run Crawler
         run: python main.py
