@@ -1,62 +1,73 @@
-name: Maple Check
+import os
+import asyncio
+from playwright.async_api import async_playwright
+import requests
 
-on:
-  repository_dispatch:
-    types: [maple-trigger]
-  workflow_dispatch:
+WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
+TARGETS = [
+    {"name": "공지사항", "url": "https://maple.land/board/notices"},
+    {"name": "이벤트", "url": "https://maple.land/board/events"},
+    {"name": "개발일지", "url": "https://maple.land/board/devlog"}
+]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+def send_webhook(name, title, url):
+    if not WEBHOOK_URL: return
+    msg = f"**[{name}] 새 소식**\n{title}\n{url}"
+    try:
+        requests.post(WEBHOOK_URL, json={"content": msg})
+    except Exception as e:
+        print(f"웹훅 전송 오류: {e}")
 
-jobs:
-  run-bot:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: true
+async def check_board(context, board_info):
+    name, list_url = board_info["name"], board_info["url"]
+    db_file = f"last_{name}.txt"
+    
+    page = await context.new_page()
+    try:
+        await page.goto(list_url, wait_until="networkidle", timeout=60000)
+        rows = page.locator('a[href^="/board/"]')
+        
+        old_titles = []
+        if os.path.exists(db_file):
+            with open(db_file, "r", encoding="utf-8") as f:
+                old_titles = [line.strip() for line in f]
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'
+        current_titles = []
+        count = await rows.count()
+        for i in range(min(count, 5)):
+            row = rows.nth(i)
+            title = (await row.inner_text()).strip()
+            title = " ".join(title.split())
+            
+            # 링크 추출 시 오류 방지
+            href = await row.get_attribute("href")
+            link = "https://maple.land" + href if href else ""
+            
+            if not title or len(title) < 5 or not link: continue
+            current_titles.append(title)
+            
+            if old_titles and title not in old_titles:
+                send_webhook(name, title, link)
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+        with open(db_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(current_titles))
+    except Exception as e:
+        print(f"에러 발생 ({name}): {e}")
+    finally:
+        await page.close()
 
-      - name: Cache Playwright Browsers
-        id: cache-playwright
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
+async def main():
+    async with async_playwright() as p:
+        # --no-sandbox: 리눅스 서버 필수
+        # --disable-dev-shm-usage: 메모리 충돌 방지 필수
+        browser = await p.chromium.launch(
+            headless=True, 
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
+        context = await browser.new_context()
+        for target in TARGETS:
+            await check_board(context, target)
+        await browser.close()
 
-      - name: Install Playwright Chromium
-        if: steps.cache-playwright.outputs.cache-hit != 'true'
-        run: playwright install --with-deps chromium
-
-      - name: Run Crawler
-        run: python main.py
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-
-      - name: Auto Commit
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # 파일이 하나라도 존재하는지 확인
-          if ls last_*.txt 1> /dev/null 2>&1; then
-            git add last_*.txt
-            if ! git diff --staged --quiet; then
-              git commit -m "Update last checked data [skip ci]"
-              git push
-            else
-              echo "No changes to commit"
-            fi
-          else
-            echo "No tracker files found"
-          fi
+if __name__ == "__main__":
+    asyncio.run(main())
