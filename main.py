@@ -11,7 +11,7 @@ TARGETS = [
     {"name": "개발일지", "url": "https://maple.land/board/devlog"}
 ]
 
-# 프로젝트 루트 경로 확보 (파일이 엉뚱한 곳에 저장되는 것 방지)
+# 프로젝트 루트 경로 확보
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def send_webhook(name, title, url):
@@ -25,7 +25,6 @@ def send_webhook(name, title, url):
 async def check_board(context, board_info):
     name = board_info["name"]
     list_url = board_info["url"]
-    # 파일 경로를 프로젝트 루트로 강제 고정
     db_file = os.path.join(BASE_DIR, f"last_{name}.txt")
     
     page = await context.new_page()
@@ -33,15 +32,10 @@ async def check_board(context, board_info):
         print(f"[{name}] 접속 중: {list_url}")
         await page.goto(list_url, wait_until="networkidle", timeout=60000)
         
-        # 게시판 링크를 정확히 탐색
-        rows = page.locator('a[href*="/board/"]')
+        # 제목을 포함한 a 태그 정확히 타겟팅
+        rows = page.locator('div.flex.items-center a')
         count = await rows.count()
-        print(f"DEBUG: [{name}] 게시글 수: {count}")
         
-        if count == 0:
-            print(f"❌ [{name}] 게시글을 찾지 못했습니다.")
-            return
-
         # 기존 데이터 로드
         old_titles = []
         if os.path.exists(db_file):
@@ -49,27 +43,28 @@ async def check_board(context, board_info):
                 old_titles = [line.strip() for line in f if line.strip()]
 
         current_titles = []
-        for i in range(min(count, 10)):
-            title = (await rows.nth(i).inner_text()).strip()
-            title = " ".join(title.split())
-            href = await rows.nth(i).get_attribute("href")
-            link = f"https://maple.land{href}"
+        for i in range(count):
+            # 1. 텍스트 전체 가져오기
+            full_text = (await rows.nth(i).text_content()) or ""
+            title = " ".join(full_text.split())
             
-            # 필터링
-            if len(title) < 5 or "카테고리" in title or "제목" in title:
-                continue
-                
-            current_titles.append(title)
+            if len(title) < 5: continue
             
-            # 신규 데이터 알림
+            # 신규 데이터 알림 (웹훅은 원본 제목으로 전송)
             if old_titles and title not in old_titles:
+                href = await rows.nth(i).get_attribute("href")
+                link = f"https://maple.land{href}"
                 print(f"신규 게시글 발견: {title}")
                 send_webhook(name, title, link)
+            
+            # 2. 파일 저장할 때는 'N' 제거
+            clean_title = title.replace("N", "").strip()
+            current_titles.append(clean_title)
 
-        # 데이터 파일 저장 (루트 경로에 강제 저장)
+        # 3. 'N'이 제거된 리스트를 루트 경로에 저장
         with open(db_file, "w", encoding="utf-8") as f:
             f.write("\n".join(current_titles))
-        print(f"DEBUG: [{name}] 파일 저장 완료 ({db_file})")
+        print(f"DEBUG: [{name}] 저장 완료. {len(current_titles)}개 항목.")
                 
     except Exception as e:
         print(f"❌ [{name}] 에러 발생: {e}")
