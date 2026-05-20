@@ -32,7 +32,7 @@ async def check_board(context, board_info):
         print(f"[{name}] 접속 중: {list_url}")
         await page.goto(list_url, wait_until="networkidle", timeout=60000)
         
-        # 제목을 포함한 a 태그 정확히 타겟팅
+        # 제목을 포함한 a 태그 타겟팅
         rows = page.locator('div.flex.items-center a')
         count = await rows.count()
         
@@ -44,11 +44,12 @@ async def check_board(context, board_info):
 
         current_titles = []
         for i in range(count):
-            # 1. 텍스트 전체 가져오기
             full_text = (await rows.nth(i).text_content()) or ""
             title = " ".join(full_text.split())
             
-            if len(title) < 5: continue
+            # 필터링: 제목이 짧거나 제외 키워드가 포함된 경우 무시
+            if len(title) < 5 or any(k in title for k in ["Discord", "카테고리", "제목"]):
+                continue
             
             # 신규 데이터 알림 (웹훅은 원본 제목으로 전송)
             if old_titles and title not in old_titles:
@@ -57,11 +58,11 @@ async def check_board(context, board_info):
                 print(f"신규 게시글 발견: {title}")
                 send_webhook(name, title, link)
             
-            # 2. 파일 저장할 때는 'N' 제거
+            # 파일 저장 시에만 'N' 제거
             clean_title = title.replace("N", "").strip()
             current_titles.append(clean_title)
 
-        # 3. 'N'이 제거된 리스트를 루트 경로에 저장
+        # 'N'이 제거된 리스트를 루트 경로에 저장
         with open(db_file, "w", encoding="utf-8") as f:
             f.write("\n".join(current_titles))
         print(f"DEBUG: [{name}] 저장 완료. {len(current_titles)}개 항목.")
