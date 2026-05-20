@@ -1,7 +1,7 @@
 import os
 import asyncio
 from playwright.async_api import async_playwright
-import requests
+import httpx
 import re
 
 # 1. 설정값 (Secrets에서 웹훅 주소를 불러옵니다)
@@ -19,9 +19,21 @@ def clean_title(text):
     text = re.sub(r'\s*N$', '', text)
     return text
 
+async def send_webhook(name, title, url):
+    """비동기로 웹훅을 전송합니다."""
+    if not WEBHOOK_URL:
+        return
+    msg = f"**[{name}] 새 소식**\n{title}\n{url}"
+    async with httpx.AsyncClient() as client:
+        try:
+            await client.post(WEBHOOK_URL, json={"content": msg})
+        except Exception as e:
+            print(f"⚠️ 웹훅 전송 실패: {e}")
+
 async def check_board(context, board_info):
     name = board_info["name"]
     list_url = board_info["url"]
+    # GitHub 환경 등을 고려하여 경로 설정
     db_file = os.path.join(os.getcwd(), f"last_{name}.txt")
     
     page = await context.new_page()
@@ -40,13 +52,12 @@ async def check_board(context, board_info):
             with open(db_file, "r", encoding="utf-8") as f:
                 old_titles = [line.strip() for line in f if line.strip()]
 
-        new_notifications = []
         current_all_titles = []
+        new_notifications = []
         processed_count = 0
 
-        for i in range(count):
-            if processed_count >= 5: break # 상위 5개만 확인
-            
+        # 상위 5개 확인
+        for i in range(min(count, 5)):
             raw_title = await rows.nth(i).inner_text()
             title_text = clean_title(raw_title)
             
@@ -61,9 +72,10 @@ async def check_board(context, board_info):
                 # 클릭해서 상세 URL 가져오기
                 await rows.nth(i).click()
                 await page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1) 
+                await asyncio.sleep(1)
                 detail_url = page.url
                 
+                # 처음 실행 시 알림 폭주 방지
                 if old_titles:
                     new_notifications.append((title_text, detail_url))
                 
@@ -71,17 +83,14 @@ async def check_board(context, board_info):
                 
                 # 다시 목록으로
                 await page.goto(list_url, wait_until="domcontentloaded")
+                await page.wait_for_selector('div.min-w-0.flex-1', timeout=30000)
                 rows = page.locator('div.min-w-0.flex-1')
 
-        # 알림 전송 (주소가 정상적으로 불러와졌을 때만)
-        if WEBHOOK_URL:
-            for title, d_url in reversed(new_notifications):
-                msg = f"**[{name}] 새 소식**\n{title}\n{d_url}"
-                requests.post(WEBHOOK_URL, json={"content": msg})
-        else:
-            print("⚠️ 경고: WEBHOOK_URL을 찾을 수 없습니다. Secrets 설정을 확인하세요.")
+        # 알림 전송 (역순으로 발송)
+        for title, d_url in reversed(new_notifications):
+            await send_webhook(name, title, d_url)
 
-        # 데이터 저장
+        # 데이터 저장 (에러가 나도 리스트를 갱신)
         if current_all_titles:
             with open(db_file, "w", encoding="utf-8") as f:
                 f.write("\n".join(current_all_titles))
