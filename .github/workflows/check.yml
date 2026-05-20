@@ -5,7 +5,6 @@ on:
     types: [maple-trigger]
   workflow_dispatch:
 
-# 🌟 여기에 Node.js 24 강제 적용 환경 변수를 추가합니다.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
@@ -17,6 +16,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,6 +36,7 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
 
       - name: Install Playwright Chromium
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
         run: playwright install --with-deps chromium
 
       - name: Run Crawler
@@ -46,7 +48,8 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f last_*.txt ]; then
+          # 파일이 하나라도 존재하는지 확인
+          if ls last_*.txt 1> /dev/null 2>&1; then
             git add last_*.txt
             if ! git diff --staged --quiet; then
               git commit -m "Update last checked data [skip ci]"
