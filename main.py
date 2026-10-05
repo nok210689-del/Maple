@@ -9,8 +9,7 @@ import requests
 # ============================================================
 
 WEBHOOK_URLS = [
-    os.environ.get("DISCORD_WEBHOOK"),
-    os.environ.get("DISCORD_WEBHOOK2"),
+    os.environ.get("DISCORD_WEBHOOK")
 ]
 
 
